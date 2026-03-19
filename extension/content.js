@@ -1,25 +1,34 @@
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === "show_warning") {
-        // Create the Banner
-        const banner = document.createElement("div");
-        banner.id = "siteshield-warning-banner";
-        banner.style.cssText = `
-            background-color: #d9534f !important;
-            color: white !important;
-            text-align: center !important;
-            padding: 15px !important;
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
-            width: 100% !important;
-            z-index: 2147483647 !important;
-            font-family: Arial, sans-serif !important;
-            font-weight: bold !important;
-            font-size: 16px !important;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.5) !important;
-        `;
-        banner.innerHTML = `⚠️ SITESHIELD AI WARNING: This website is classified as ${request.status}. Use extreme caution! [ <a href="#" style="color:white;text-decoration:underline;" onclick="this.parentElement.remove();">Dismiss</a> ]`;
-        
-        document.body.prepend(banner);
+// content.js - Now extracts Behavioral Features
+function extractBehavioralFeatures() {
+    const forms = document.getElementsByTagName('form');
+    const scripts = document.getElementsByTagName('script');
+    const iframes = document.getElementsByTagName('iframe');
+    const links = document.getElementsByTagName('a');
+    
+    let suspiciousForms = 0;
+    const currentDomain = window.location.hostname;
+
+    // 1. Detect Form Hijacking (Data sent to a different domain)
+    for (let f of forms) {
+        let action = f.getAttribute('action');
+        if (action && action.startsWith('http') && !action.includes(currentDomain)) {
+            suspiciousForms++;
+        }
     }
+
+    return {
+        url: window.location.href,
+        form_count: forms.length,
+        suspicious_forms: suspiciousForms,
+        script_count: scripts.length,
+        iframe_count: iframes.length,
+        has_password_field: !!document.querySelector('input[type="password"]'),
+        has_hidden_elements: !!document.querySelector('[style*="display:none"], [style*="visibility:hidden"]')
+    };
+}
+
+// Send this "DNA" to the backend
+chrome.runtime.sendMessage({ 
+    action: "check_url", 
+    dna: extractBehavioralFeatures() 
 });

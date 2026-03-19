@@ -1,121 +1,82 @@
+import os
+import numpy as np
+import joblib
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import joblib
-import numpy as np
-import pandas as pd
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 from urllib.parse import urlparse
-import requests
-from bs4 import BeautifulSoup
-import re
-from classifier import URLFeatureExtractor  # Ensure this file is in your folder
 
 app = Flask(__name__)
 CORS(app)
 
-# ==========================================
-# 1. LOAD MODELS & CONFIGURATION
-# ==========================================
+# 1. LOAD THE MODERN NATIVE KERAS MODEL
 try:
-    model = joblib.load('models/model.pkl')
-    feature_cols = joblib.load('models/features.pkl')
-    extractor = URLFeatureExtractor()
-    print("✅ Model and Feature Extractor initialized.")
+    # Make sure you renamed your file to .keras in train_deep_model.py!
+    model = load_model('models/deep_shield_model.keras')
+    tokenizer = joblib.load('models/tokenizer.pkl')
+    print("✅ Deep Learning Engine Online (.keras format)")
 except Exception as e:
-    print(f"❌ Initialization Error: {e}")
+    print(f"❌ Model Load Error: {e}")
 
-CLASS_MAP = {0: "Safe", 1: "Defacement", 2: "Phishing", 3: "Malicious"}
+CLASS_MAP = {0: "Safe", 1: "Defacement", 2: "Phishing", 3: "Malware"}
+WHITELIST = ["google.com", "whatsapp.com", "snapchat.com", "facebook.com", "youtube.com"]
 
-# Major sites that never need an AI check
-WHITELIST = [
-    "google.com", "google.co.in", "youtube.com", "facebook.com", 
-    "linkedin.com", "github.com", "microsoft.com", "apple.com"
-]
-
-# Trusted dev platforms (Prevents flagging portfolios)
-INFRA_PROVIDERS = ["web.app", "vercel.app", "github.io", "netlify.app", "pages.dev"]
-
-# ==========================================
-# 2. CONTENT SCANNER (The Scraper)
-# ==========================================
-def scan_page_content(url):
-    """Visits the site and checks the actual HTML for phishing signals."""
-    try:
-        # We use a short timeout to keep the extension fast
-        response = requests.get(url, timeout=3, headers={'User-Agent': 'Mozilla/5.0'})
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Check for password inputs (High risk on unknown domains)
-        has_password = 1 if soup.find('input', {'type': 'password'}) else 0
-        
-        # Check for external forms (Data sent to a different domain)
-        forms = soup.find_all('form')
-        ext_form = 0
-        domain = urlparse(url).netloc
-        for f in forms:
-            action = f.get('action', '')
-            if action.startswith('http') and domain not in action:
-                ext_form = 1
-        
-        # Check for brand mentions in text
-        text = soup.get_text().lower()
-        brands = ['login', 'verify', 'account', 'bank', 'secure']
-        brand_score = sum(1 for b in brands if b in text)
-        
-        return {"has_password": has_password, "ext_form": ext_form, "brand_score": brand_score}
-    except:
-        return {"has_password": 0, "ext_form": 0, "brand_score": 0}
-
-# ==========================================
-# 3. THE PREDICTION ROUTE
-# ==========================================
 @app.route('/predict', methods=['POST'])
 def predict():
     data = request.get_json()
-    url = data.get('url')
+    if not data:
+        return jsonify({"error": "No data received"}), 400
+
+    # SAFETY CHECK: Extract 'dna' if it exists, otherwise use empty dict
+    dna = data.get('dna', {})
+    
+    # Get URL from 'dna' or directly from 'url' key
+    url = dna.get('url') or data.get('url')
     
     if not url:
-        return jsonify({"error": "No URL provided"}), 400
+        return jsonify({"error": "No URL found in request"}), 400
 
     domain = urlparse(url).netloc.lower().replace('www.', '')
 
     # --- LAYER 1: WHITELIST ---
-    if any(white_domain in domain for white_domain in WHITELIST):
-        return jsonify({"url": url, "status": "Safe", "confidence": 1.0, "method": "Whitelist"})
+    if any(white in domain for white in WHITELIST):
+        return jsonify({"url": url, "status": "Safe", "method": "Whitelist"})
 
-    # --- LAYER 2: HTML SCRAPING ---
-    content = scan_page_content(url)
-
-    # --- LAYER 3: MACHINE LEARNING (URL Analysis) ---
-    features_list = extractor.extract_all(url)
-    features_df = pd.DataFrame([features_list], columns=feature_cols)
-    
-    probs = model.predict_proba(features_df)[0]
-    ai_idx = np.argmax(probs)
-    ai_confidence = float(probs[ai_idx])
+    # --- LAYER 2: DEEP LEARNING URL SCAN ---
+    seq = tokenizer.texts_to_sequences([url.lower()])
+    padded = pad_sequences(seq, maxlen=150)
+    ai_prediction = model.predict(padded, verbose=0)
+    ai_idx = np.argmax(ai_prediction[0])
     ai_status = CLASS_MAP.get(ai_idx, "Safe")
+    ai_confidence = float(np.max(ai_prediction[0]))
 
-    # --- LAYER 4: HYBRID LOGIC (The "Decision Maker") ---
+    # --- LAYER 3: BEHAVIORAL ANALYSIS ---
+    # We only run this if the DNA was actually sent by the extension
+    risk_score = 0
+    if dna:
+        if dna.get('has_password_field') and ai_status != "Safe":
+            risk_score += 50
+        if dna.get('suspicious_forms', 0) > 0:
+            risk_score += 40
+        if dna.get('has_hidden_elements'):
+            risk_score += 20
+
+    # Final Decision Logic
     final_status = ai_status
+    if risk_score >= 70:
+        final_status = "Malicious" 
+    elif risk_score < 20 and ai_confidence < 0.8:
+        final_status = "Safe"
 
-    # 1. If it's a portfolio on web.app/vercel, be more lenient
-    if any(provider in domain for provider in INFRA_PROVIDERS):
-        # Only flag it if the HTML actually looks like a phishing trap
-        if ai_status == "Phishing" and content['has_password'] == 0:
-            final_status = "Safe"
-    
-    # 2. If the HTML has a password field + external form, it's 100% Phishing
-    if content['has_password'] and content['ext_form']:
-        final_status = "Phishing"
-        ai_confidence = 1.0
-
-    print(f"🔍 Checked: {url} | AI: {ai_status} | Final: {final_status}")
+    print(f"🔬 Analyzed: {url[:40]}... | Result: {final_status}")
 
     return jsonify({
         "url": url,
         "status": final_status,
         "confidence": ai_confidence,
-        "html_flags": content
+        "behavior_score": risk_score
     })
 
 if __name__ == '__main__':
-    app.run(port=5000, debug=True)
+    app.run(port=5000, debug=False)
