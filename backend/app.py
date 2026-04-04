@@ -31,7 +31,8 @@ print("✅ SiteShield Ultimate Engine Online (APIs + Age + Typosquatting)")
 def check_domain_age(domain):
     """Hits public RDAP registry to find domain creation date."""
     try:
-        r = requests.get(f'https://rdap.org/domain/{domain}', timeout=3)
+        # Increased timeout to 7 seconds. Free public RDAP gets slow sometimes!
+        r = requests.get(f'https://rdap.org/domain/{domain}', timeout=7)
         if r.status_code == 200:
             events = r.json().get('events', [])
             for event in events:
