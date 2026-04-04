@@ -6,4 +6,7 @@ scikit-learn
 joblib
 requests
 beautifulsoup4
-tensorflow
+torch
+torchvision
+torchaudio
+python-dotenv

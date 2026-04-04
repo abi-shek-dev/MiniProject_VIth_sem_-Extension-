@@ -1,17 +1,58 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <style>
-        body { width: 250px; font-family: sans-serif; padding: 10px; }
-        .header { font-weight: bold; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
-        .status { margin-top: 10px; font-size: 18px; font-weight: bold; }
-        .Safe { color: green; }
-        .Phishing, .Malicious, .Defacement { color: red; }
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SiteShield AI</title>
+    <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-    <div class="header">SiteShield AI</div>
-    <div id="status-text" class="status">Analyzing...</div>
-    <div id="details" style="font-size: 12px; margin-top: 5px;"></div>
+    <div class="container" id="main-container">
+        <!-- Header -->
+        <header>
+            <div class="logo-wrapper">
+                <svg viewBox="0 0 24 24" class="shield-icon" id="shield-icon" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <h1>SiteShield <span class="ai-text">AI</span></h1>
+            </div>
+            <div class="scanning-badge" id="scan-state">
+                <span class="loader"></span> Scanning
+            </div>
+        </header>
+
+        <!-- Main Verdict Area -->
+        <div class="verdict-card default-glow" id="verdict-card">
+            <h2 id="status-title">Analyzing URL</h2>
+            <p id="url-domain" class="domain-text">Please wait...</p>
+        </div>
+
+        <!-- Metrics Grid -->
+        <div class="metrics-grid">
+            <div class="metric-box">
+                <span class="metric-label">AI Engine Confidence</span>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill blue-fill" id="ai-confidence-fill" style="width: 0%;"></div>
+                </div>
+                <span class="metric-value ai-text" id="ai-value">--%</span>
+            </div>
+            <div class="metric-box">
+                <span class="metric-label">Behavioral Hunter Risk</span>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill risk-fill" id="hunter-risk-fill" style="width: 0%;"></div>
+                </div>
+                <span class="metric-value risk-text" id="hunter-value">--/100</span>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer>
+            <div class="defense-status">
+                <span class="status-dot blink"></span> Active Defense
+            </div>
+            <span class="api-method" id="api-method">Initializing engines...</span>
+        </footer>
+    </div>
+    <script src="popup.js"></script>
 </body>
 </html>

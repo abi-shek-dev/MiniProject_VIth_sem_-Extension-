@@ -5,7 +5,8 @@
     "description": "Real-time ML-based website safety classifier.",
     "permissions": [
         "tabs",
-        "notifications"
+        "notifications",
+        "storage"
     ],
     "host_permissions": [
         "http://127.0.0.1:5000/*"
