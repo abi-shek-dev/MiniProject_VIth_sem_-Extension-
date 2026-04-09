@@ -6,6 +6,7 @@ from difflib import SequenceMatcher
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
+from classifier import ContentScanner
 
 load_dotenv()
 app = Flask(__name__)
@@ -22,7 +23,14 @@ WHITELIST = [
     "reddit.com", "wikipedia.org", "chatgpt.com", "openai.com"
 ]
 
-print("✅ SiteShield Ultimate Engine Online (APIs + Age + Typosquatting)")
+# Load local blacklist
+BLACKLIST = []
+BLACKLIST_PATH = os.path.join('data', 'blacklist.txt')
+if os.path.exists(BLACKLIST_PATH):
+    with open(BLACKLIST_PATH, 'r') as f:
+        BLACKLIST = [line.strip().lower() for line in f if line.strip()]
+
+print(f"✅ SiteShield Ultimate Engine Online (Whitelist: {len(WHITELIST)}, Blacklist: {len(BLACKLIST)})")
 
 # ─────────────────────────────────────────────────────────
 # 2. LOCAL CYBERSECURITY ENGINES
@@ -70,6 +78,98 @@ def check_typosquatting(domain, whitelist):
             
     return False, None
 
+def check_url_heuristics(domain, url):
+    """Analyzes the URL itself for scam patterns — no API needed."""
+    import re
+    risk = 0
+    reasons = []
+    
+    parts = domain.split('.')
+    base = parts[-2] if len(parts) >= 2 else domain
+    tld = parts[-1] if len(parts) >= 2 else ''
+    full_domain = domain.lower()
+    
+    # 1. Suspicious TLDs commonly abused by scammers
+    high_risk_tlds = ['cc', 'xyz', 'top', 'vip', 'cfd', 'icu', 'buzz', 'sbs', 'rest', 'surf']
+    medium_risk_tlds = ['shop', 'club', 'online', 'site', 'ltd', 'pro', 'plus']
+    if tld in high_risk_tlds:
+        risk += 35
+        reasons.append(f'High-risk TLD (.{tld})')
+    elif tld in medium_risk_tlds:
+        risk += 20
+        reasons.append(f'Suspicious TLD (.{tld})')
+    
+    # 2. Gibberish domain name detection (low vowel ratio = random chars)
+    vowels = sum(1 for c in base if c in 'aeiou')
+    consonants = sum(1 for c in base if c.isalpha() and c not in 'aeiou')
+    
+    if len(base) > 3:
+        vowel_ratio = vowels / len(base)
+        if vowel_ratio <= 0.2:  # Fixed: was < 0.2, now catches hdajx (ratio 0.2)
+            risk += 35
+            reasons.append('Gibberish domain name')
+        elif vowel_ratio <= 0.25:
+            risk += 20
+            reasons.append('Low readability domain')
+    
+    # 3. Consonant clusters (3+ consonants in a row = not a real word)
+    if re.search(r'[bcdfghjklmnpqrstvwxyz]{4,}', base):
+        risk += 25
+        reasons.append('Unpronounceable domain')
+    
+    # 4. Short meaningless domains (hdajx, fgnbg, xskym)
+    if len(base) <= 5 and vowels <= 1:
+        risk += 25
+        reasons.append('Very short random domain')
+    
+    # 5. Domain has numbers mixed with letters (coin6s, coin8v, my6us)
+    if re.search(r'[a-z]\d|\d[a-z]', base):
+        risk += 20
+        reasons.append('Mixed letters+numbers')
+    
+    # 6. Subdomain depth (hk0017.jinanly.top = deep subdomain)
+    if len(parts) > 3:
+        risk += 20
+        reasons.append('Deep subdomain chain')
+    
+    # 7. Scam keywords in the domain itself
+    scam_words = [
+        'pay', 'coin', 'trade', 'fx', 'mall', 'shop', 'reward', 'invest',
+        'crypto', 'earn', 'profit', 'deal', 'hub', 'task', 'review',
+        'finance', 'capital', 'asset', 'trust', 'secure', 'fast',
+        'lucky', 'order', 'gift', 'prize', 'win', 'bonus'
+    ]
+    matches = [w for w in scam_words if w in full_domain]
+    if len(matches) >= 2:
+        risk += 35
+        reasons.append(f'Multiple scam keywords: {", ".join(matches)}')
+    elif len(matches) == 1:
+        risk += 20
+        reasons.append(f'Scam keyword: {matches[0]}')
+    
+    # 8. Extremely long domain names (often auto-generated scam domains)
+    if len(base) > 20:
+        risk += 20
+        reasons.append('Unusually long domain name')
+    
+    # 9. No HTTPS
+    if not url.startswith('https'):
+        risk += 10
+        reasons.append('No HTTPS')
+    
+    # 10. Domain looks like it's impersonating a brand with extra words
+    brand_fragments = ['amazon', 'google', 'apple', 'paypal', 'netflix', 'microsoft', 'facebook', 'instagram']
+    for brand in brand_fragments:
+        if brand in base and base != brand:
+            risk += 30
+            reasons.append(f'Contains brand name: {brand}')
+            break
+    
+    if reasons:
+        print(f"🧬 URL Heuristics | {domain} | Risk: {risk} | Flags: {', '.join(reasons)}")
+    
+    return risk
+
 # ─────────────────────────────────────────────────────────
 # 3. EXTERNAL API SERVICE LAYERS
 # ─────────────────────────────────────────────────────────
@@ -98,12 +198,31 @@ def check_virustotal(domain):
     try:
         url = f"https://www.virustotal.com/api/v3/domains/{domain}"
         headers = {"x-apikey": key}
-        r = requests.get(url, headers=headers, timeout=2)
+        r = requests.get(url, headers=headers, timeout=3)
         if r.status_code == 200:
             stats = r.json().get('data', {}).get('attributes', {}).get('last_analysis_stats', {})
             malicious = stats.get('malicious', 0)
             phishing = stats.get('phishing', 0)
-            if malicious > 0 or phishing > 0: return "Malicious"
+            suspicious = stats.get('suspicious', 0)
+            # Need 2+ engines to flag
+            if malicious >= 2 or phishing >= 2 or suspicious >= 3: return "Malicious"
+    except: pass
+    return None
+
+def check_urlscan(domain):
+    """Uses URLScan.io to check domain reputation."""
+    key = os.getenv('URLSCAN_API_KEY')
+    if not key or "paste" in key.lower(): return None
+    try:
+        headers = {"API-Key": key}
+        r = requests.get(f'https://urlscan.io/api/v1/search/?q=domain:{domain}', headers=headers, timeout=3)
+        if r.status_code == 200:
+            results = r.json().get('results', [])
+            for result in results[:3]:  # Check latest 3 scans
+                verdicts = result.get('verdicts', {}).get('overall', {})
+                if verdicts.get('malicious'):
+                    print(f"🛡️ URLScan.io flagged {domain} as malicious!")
+                    return "Malicious"
     except: pass
     return None
 
@@ -136,6 +255,10 @@ def predict():
     if any(white == domain for white in WHITELIST):
         return jsonify({"url": url, "status": "Safe", "ai_score": "100%", "hunter_risk": 0, "method": "Whitelist", "domain_created": domain_created or "N/A", "domain_age_days": domain_age})
 
+    # == LAYER 1.5: BLACKLIST Check ==
+    if any(black in domain for black in BLACKLIST):
+        return jsonify({"url": url, "status": "Scam", "ai_score": "100%", "hunter_risk": 100, "method": "Local Blacklist", "domain_created": domain_created or "N/A", "domain_age_days": domain_age})
+
     # == LAYER 2: TYPOSQUATTING (Lookalike) Check ==
     is_spoof, real_brand = check_typosquatting(domain, WHITELIST)
     if is_spoof:
@@ -149,28 +272,49 @@ def predict():
     vt = check_virustotal(domain)
     if vt:
         return jsonify({"url": url, "status": "Malicious", "ai_score": "100%", "hunter_risk": 100, "method": "VirusTotal", "domain_created": domain_created or "N/A", "domain_age_days": domain_age})
-    
-    # == LAYER 5: DOM HUNTER (Behavioral Risk) ==
-    risk_score = age_risk
+
+    # == LAYER 4.5: URLScan.io ==
+    us = check_urlscan(domain)
+    if us:
+        return jsonify({"url": url, "status": "Malicious", "ai_score": "100%", "hunter_risk": 100, "method": "URLScan.io", "domain_created": domain_created or "N/A", "domain_age_days": domain_age})
+
+    # == LAYER 5: URL HEURISTICS (Scam Pattern Analysis) ==
+    url_risk = check_url_heuristics(domain, url)
+
+    # == LAYER 6: WEB SCRAPING (Deep Page Analysis) ==
+    scrape = ContentScanner.scan_page(url)
+    scrape_risk = scrape.get('scrape_risk_score', 0)
+
+    # == LAYER 7: DOM HUNTER (Behavioral Risk from Extension) ==
+    risk_score = age_risk + url_risk + scrape_risk
     if dna.get('shadow_forms', 0) > 0: risk_score += 60 
-    if dna.get('has_password'): risk_score += 30
     if dna.get('hidden_iframes', 0) > 0: risk_score += 20
-    if dna.get('is_obfuscated'): risk_score += 15
+    if dna.get('is_obfuscated'): risk_score += 10
+    if dna.get('has_password') and risk_score > 0: risk_score += 20
 
     final_status = "Safe"
-    if risk_score >= 70:
-        final_status = "Malicious"
-    elif risk_score >= 30:
+    if risk_score >= 55:
+        final_status = "Scam"
+    elif risk_score >= 35:
         final_status = "Suspicious"
+
+    print(f"⚖️ VERDICT | {domain} | Age Risk: {age_risk} | URL Risk: {url_risk} | Scrape Risk: {scrape_risk} | Total: {risk_score} → {final_status}")
 
     return jsonify({
         "url": url,
         "status": final_status,
-        "ai_score": "API + WHOIS",
+        "ai_score": "Heuristic + Scrape",
         "hunter_risk": min(risk_score, 100),
-        "method": f"Hunter + Age Scan{age_method_tag}",
+        "method": f"URL Analysis + Scrape{age_method_tag}",
         "domain_created": domain_created or "N/A",
-        "domain_age_days": domain_age
+        "domain_age_days": domain_age,
+        "scrape": {
+            "page_title": scrape.get('page_title', ''),
+            "keywords_found": scrape.get('keyword_score', 0),
+            "external_forms": scrape.get('external_forms', 0),
+            "suspicious_scripts": scrape.get('suspicious_scripts', 0),
+            "brand_spoof": scrape.get('brand_found')
+        }
     })
 
 if __name__ == '__main__':
