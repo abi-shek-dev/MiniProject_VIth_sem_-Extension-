@@ -93,6 +93,36 @@ function updateUI(data) {
 
     setTimeout(() => { riskFill.style.width = `${hunterScore}%`; }, 100);
 
+    // Domain Age Display
+    const createdEl = document.getElementById('domain-created');
+    const ageBadge = document.getElementById('age-badge');
+    const ageDaysEl = document.getElementById('domain-age-days');
+    
+    if (data.domain_created && data.domain_created !== "N/A") {
+        createdEl.innerText = data.domain_created;
+        const days = data.domain_age_days;
+        
+        // Human-readable age
+        let ageText = "";
+        if (days !== null && days !== undefined) {
+            if (days < 30) ageText = `${days}d old`;
+            else if (days < 365) ageText = `${Math.floor(days / 30)}mo old`;
+            else ageText = `${Math.floor(days / 365)}y old`;
+        }
+        ageDaysEl.innerText = ageText;
+        
+        // Color code the badge
+        ageBadge.className = 'age-badge';
+        if (days !== null && days < 30) {
+            ageBadge.classList.add('new-domain');
+        } else if (days !== null && days < 180) {
+            ageBadge.classList.add('young-domain');
+        }
+    } else {
+        createdEl.innerText = "Unavailable";
+        ageDaysEl.innerText = "--";
+    }
+
     // Method footer
     document.getElementById('api-method').innerText = `Engine: ${data.method || 'Heuristics'}`;
 }

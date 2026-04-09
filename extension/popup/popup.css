@@ -21,7 +21,7 @@
 
 body {
     width: 320px;
-    height: 400px;
+    height: 460px;
     background-color: var(--bg-main);
     color: var(--text-main);
     font-family: system-ui, -apple-system, sans-serif;
@@ -127,7 +127,7 @@ h2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
-    margin-bottom: auto;
+    margin-bottom: 12px;
 }
 
 .metric-box {
@@ -170,6 +170,76 @@ h2 {
     font-size: 14px;
     font-weight: 700;
     align-self: flex-end;
+}
+
+/* --- Domain Age Bar --- */
+.domain-age-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+    animation: fadeIn 0.6s ease forwards;
+    opacity: 0;
+    animation-delay: 0.3s;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.age-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.age-info {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+}
+
+.age-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.age-date {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.age-badge {
+    background: rgba(41, 121, 255, 0.15);
+    border: 1px solid rgba(41, 121, 255, 0.3);
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-ai);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.age-badge.new-domain {
+    background: rgba(255, 23, 68, 0.15);
+    border-color: rgba(255, 23, 68, 0.3);
+    color: var(--color-phish);
+}
+
+.age-badge.young-domain {
+    background: rgba(255, 145, 0, 0.15);
+    border-color: rgba(255, 145, 0, 0.3);
+    color: var(--color-scam);
 }
 
 /* --- Footer --- */

@@ -29,7 +29,7 @@ print("✅ SiteShield Ultimate Engine Online (APIs + Age + Typosquatting)")
 # ─────────────────────────────────────────────────────────
 
 def check_domain_age(domain):
-    """Hits public RDAP registry to find domain creation date."""
+    """Hits public RDAP registry to find domain creation date. Returns (age_days, created_date_str) tuple."""
     try:
         # Increased timeout to 7 seconds. Free public RDAP gets slow sometimes!
         r = requests.get(f'https://rdap.org/domain/{domain}', timeout=7)
@@ -41,14 +41,15 @@ def check_domain_age(domain):
                     if creation_date_str:
                         date_obj = datetime.strptime(creation_date_str.split('T')[0], '%Y-%m-%d')
                         age_days = (datetime.now() - date_obj).days
+                        created_str = date_obj.strftime('%d %b %Y')  # e.g. "15 Sep 1997"
                         
-                        # Added Print Logic for User Terminal
-                        print(f"🌍 WHOIS Scan | Domain: {domain} | Created: {date_obj.date()} | Age: {age_days} days")
+                        # Terminal print for presentation
+                        print(f"🌍 WHOIS Scan | Domain: {domain} | Created: {created_str} | Age: {age_days} days")
                         
-                        return age_days
+                        return age_days, created_str
     except Exception as e: 
         print(f"⚠️ WHOIS Error for {domain}: {e}")
-    return None
+    return None, None
 
 def check_typosquatting(domain, whitelist):
     """Mathematical string comparison against major brands."""
@@ -121,7 +122,7 @@ def predict():
     domain = urllib.parse.urlparse(url).netloc.lower().replace('www.', '')
 
     # == LAYER 0: FORCE PRINT DOMAIN AGE FOR PRESENTATION ==
-    domain_age = check_domain_age(domain)
+    domain_age, domain_created = check_domain_age(domain)
     age_risk = 0
     age_method_tag = ""
     if domain_age is not None:
@@ -133,21 +134,21 @@ def predict():
 
     # == LAYER 1: WHITELIST Bouncer ==
     if any(white == domain for white in WHITELIST):
-        return jsonify({"url": url, "status": "Safe", "ai_score": "100%", "hunter_risk": 0, "method": "Whitelist"})
+        return jsonify({"url": url, "status": "Safe", "ai_score": "100%", "hunter_risk": 0, "method": "Whitelist", "domain_created": domain_created or "N/A", "domain_age_days": domain_age})
 
     # == LAYER 2: TYPOSQUATTING (Lookalike) Check ==
     is_spoof, real_brand = check_typosquatting(domain, WHITELIST)
     if is_spoof:
-        return jsonify({"url": url, "status": "Phishing", "ai_score": "100%", "hunter_risk": 95, "method": f"Typosquatting (Spoofing {real_brand})"})
+        return jsonify({"url": url, "status": "Phishing", "ai_score": "100%", "hunter_risk": 95, "method": f"Typosquatting (Spoofing {real_brand})", "domain_created": domain_created or "N/A", "domain_age_days": domain_age})
 
     # == LAYER 4: DNS / API CHECKS ==
     gsb = check_google_safe_browsing(url)
     if gsb:
-        return jsonify({"url": url, "status": "Phishing", "ai_score": "100%", "hunter_risk": 100, "method": "Google Safe Browsing"})
+        return jsonify({"url": url, "status": "Phishing", "ai_score": "100%", "hunter_risk": 100, "method": "Google Safe Browsing", "domain_created": domain_created or "N/A", "domain_age_days": domain_age})
         
     vt = check_virustotal(domain)
     if vt:
-        return jsonify({"url": url, "status": "Malicious", "ai_score": "100%", "hunter_risk": 100, "method": "VirusTotal"})
+        return jsonify({"url": url, "status": "Malicious", "ai_score": "100%", "hunter_risk": 100, "method": "VirusTotal", "domain_created": domain_created or "N/A", "domain_age_days": domain_age})
     
     # == LAYER 5: DOM HUNTER (Behavioral Risk) ==
     risk_score = age_risk
@@ -166,8 +167,10 @@ def predict():
         "url": url,
         "status": final_status,
         "ai_score": "API + WHOIS",
-        "hunter_risk": min(risk_score, 100), # Cap at 100
-        "method": f"Hunter + Age Scan{age_method_tag}"
+        "hunter_risk": min(risk_score, 100),
+        "method": f"Hunter + Age Scan{age_method_tag}",
+        "domain_created": domain_created or "N/A",
+        "domain_age_days": domain_age
     })
 
 if __name__ == '__main__':
